@@ -32,6 +32,10 @@ def get_mimi_data_sekurlsa(filename):
                     head = False
                     if cred=={}: #if cred is empty
                         pass
+                    elif cred["User Name"].startswith("UMFD") or cred["User Name"].startswith("DWM"):
+                        cred = {}
+                        parent_group= None
+                        sub_group= None
                     else:
                         credenctials.append(cred)
                         cred = {}
@@ -318,6 +322,7 @@ def store_results(dir,credentials,filename,mimi_type,force_overwrite):
                     print("Invalid choice")
     #store credentials in csv file
     df = pd.DataFrame(normalize_json_array(credentials))
+    df = df.drop_duplicates(subset=[col for col in df.columns if not col in ["Logon Time","Session","Authentication Id"]])
     #add mimikatz type as columns 
     df["mimikatz_type"] = mimi_type
     df.to_csv(dest_folder+name+".csv", index=False)
@@ -361,9 +366,82 @@ def unify_results(dir):
                 print(e)
         df.to_excel(writer, sheet_name=folder[0], index=False)
     writer.close()
-    
-    
 
+def clean_users_data(file):
+    print("Cleaning file "+file)
+    #read file
+    data = pd.read_csv(file)
+    #add row vip_group
+    with open("vip_groups.txt", 'r') as file_vip:
+        vip_groups = file_vip.readlines()
+        vip_groups = [group.strip() for group in vip_groups]
+    #add row vip_group	
+    data["vip_group"] = False
+    #iterate rows
+    for index, row in data.iterrows():
+        if "memberof" in row and "distinguishedname" in row and isinstance(row["memberof"], str):
+            #extract distinguished name parts 
+            dname_parts= row["distinguishedname"].split(",")
+            #remove CN=
+            dname_parts = [part.replace("CN=","") for part in dname_parts]
+            #join all parts except part=samaccountname
+            domain_parts=[part for part in dname_parts if not part==row["samaccountname"]]
+            domain=".".join(domain_parts)
+            #extract member of parts
+            memberof_parts = row["memberof"].split(",")
+            #remove CN=
+            memberof_parts = [part.replace("CN=","") for part in memberof_parts]
+            #remove part if in domain_parts
+            memberof_parts = [part for part in memberof_parts if not part in domain_parts]
+            #join all parts
+            row["memberof"] = "\n".join(memberof_parts)
+            #check if memberof is in vip_groups
+            if any(group in vip_groups for group in memberof_parts):
+                row["vip_group"] = True
+            else:
+                row["vip_group"] = False
+            #add domain
+            row["domain"] = domain
+            data.loc[index] = row
+    
+    #save file
+    data.to_csv(file, index=False)
+            
+
+def enrich_data(dir):
+    userfiles=[]
+    #list files on data direcotry
+    files = os.listdir(dir+"/data")
+    for file in files:    
+        #read first line to see headers
+        with open(dir+"/data/"+file, 'r') as f:
+            headers = f.readline().split(",")
+        #remove \" from headers
+        headers = [header.replace("\"","").strip() for header in headers]
+        #check if headers contain  at least  samaccountname,logoncount,description,objectsid,memberof,samaccounttype,distinguishedname
+        if all(elem in headers for elem in ["samaccountname","logoncount","description","objectsid","memberof","samaccounttype","distinguishedname"]):
+            if not "vip_group" in headers:
+                clean_users_data(dir+"/data/"+file)
+            userfiles.append(file)
+    users_data=pd.DataFrame()
+    for ufile in userfiles:
+        #open file and add to dataframe
+        users_data = pd.concat([users_data,pd.read_csv(dir+"/data/"+ufile)])
+    #iterate all csvs and enrich user data by sid
+    for folder in os.listdir(dir):
+        if folder.startswith("csvs_"):
+            files = os.listdir(dir+"/"+folder)
+            for file in files:
+                data = pd.read_csv(dir+"/"+folder+"/"+file)
+                #check which header it contains SID or Object Security ID
+                if "SID" in data.columns:
+                    #merga data with users_data by SID and add columns
+                    data = pd.merge(data, users_data, left_on="SID", right_on="objectsid", how="left")
+                    data.to_csv(dir+"/"+folder+"/"+file, index=False)
+                elif "Object Security ID" in data.columns:
+                    data = pd.merge(data, users_data, left_on="Object Security ID", right_on="objectsid", how="left")
+                    data.to_csv(dir+"/"+folder+"/"+file, index=False)
+        
 
 if __name__ == "__main__":
     #parse arguments
@@ -381,6 +459,7 @@ if __name__ == "__main__":
             if mimi_type==None:
                 print("File "+file+" does not contain a valid mimikatz type")
                 continue
+            mimi_type=mimi_type.lower()
             if mimi_type.startswith("sekurlsa"):
                 mimi_data = get_mimi_data_sekurlsa(args.directory+"/"+file)
                 store_results(args.directory,mimi_data, file,mimi_type,force_overwrite)
@@ -392,6 +471,7 @@ if __name__ == "__main__":
                 store_results(args.directory,mimi_data, file,mimi_type,force_overwrite)
         else:
             print("File "+file+" already processed")
+    enrich_data(args.directory)
     print("All files processed")
     unify_results(args.directory)
     print("Results unified")
