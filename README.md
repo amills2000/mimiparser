@@ -12,6 +12,8 @@ pip install -r .\requirements.txt
 
 ## Usage
 
+The idea is to have a folder with all the full output of the mimikatz execution on several machines and execute this tool to merge them together. It is important to save the mimikatz results with meaningful names that help you identify the source. 
+
 This option will overwrite any previous parsing performed
 ```bash
 py .\parse_mimi.py -d "<path-to-mimikatz-folder>"
