@@ -218,7 +218,6 @@ def mimikatz_cheker(filename):
 
 def mimikatz_finder(directory):
     #find all files that contains mimikatz
-    import os
     files = []
     for filename in os.listdir(directory):
         try:
@@ -289,7 +288,6 @@ def store_results(dir,credentials,filename,mimi_type,force_overwrite):
             json.dump({}, file)
     name=filename.split(".")[0]
     #check if file name exists
-    print(force_overwrite)
     if os.path.isfile(dest_folder+name+".csv") and force_overwrite=="False":
         print("test")
         #prompt user actions: overwrite, rename, skip
@@ -320,6 +318,8 @@ def store_results(dir,credentials,filename,mimi_type,force_overwrite):
                     print("Invalid choice")
     #store credentials in csv file
     df = pd.DataFrame(normalize_json_array(credentials))
+    #add mimikatz type as columns 
+    df["mimikatz_type"] = mimi_type
     df.to_csv(dest_folder+name+".csv", index=False)
     #store credentials in json file
     with open(dir+"/jsons/"+name+".json", 'w') as file:
