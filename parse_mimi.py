@@ -477,7 +477,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     #create csv folder if not exists
     if not os.path.isdir(args.directory+"/csvs"):
-        os.mkdir(args.directory)
+        os.mkdir(args.directory+"/csvs")
     #find all files that contains mimikatz
     force_overwrite = args.force_overwrite
     files = mimikatz_finder(args.directory)
