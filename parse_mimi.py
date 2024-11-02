@@ -271,15 +271,17 @@ def normalize_json_array(data):
     return new_data
 
 def store_results(dir,credentials,filename,mimi_type,force_overwrite):
+    if not os.path.isdir(dir+"/csvs"):
+        os.mkdir(dir+"/csvs")
     dest_folder=""
     if mimi_type.startswith("sekurlsa"):
-        dest_folder=dir+"/csvs_sekurlsa/"
+        dest_folder=dir+"/csvs/csvs_sekurlsa/"
     if mimi_type.startswith("lsadump::dcsync"):
-        dest_folder=dir+"/csvs_dcsync/"
+        dest_folder=dir+"/csvs/csvs_dcsync/"
     if mimi_type.startswith("lsadump::trust"):
-        dest_folder=dir+"/csvs_trust/"
+        dest_folder=dir+"/csvs/csvs_trust/"
     if dest_folder=="":
-        dest_folder=dir+"/csvs_unknown/"
+        dest_folder=dir+"/csvs/csvs_unknown/"
     #check if csvs folder exists
     if not os.path.isdir(dest_folder):
         os.mkdir(dest_folder)
@@ -293,7 +295,6 @@ def store_results(dir,credentials,filename,mimi_type,force_overwrite):
     name=filename.split(".")[0]
     #check if file name exists
     if os.path.isfile(dest_folder+name+".csv") and force_overwrite=="False":
-        print("test")
         #prompt user actions: overwrite, rename, skip
         while True:
             print("File "+filename+".csv already exists")
@@ -346,9 +347,14 @@ def unify_results(dir):
     #find all folders starting with csvs_
     writer = pd.ExcelWriter(dir+"/mimikatz_credentials.xlsx", engine = 'xlsxwriter')
     folders=[]
-    for folder in os.listdir(dir):
+    data_folders=[]
+    csv_folder=dir+"/csvs/"
+    for folder in os.listdir(csv_folder):
         if folder.startswith("csvs_"):
-            folders.append((folder,dir+"/"+folder))
+            if folder=="csvs_data":
+                data_folders.append((folder,csv_folder+"/"+folder))
+                continue
+            folders.append((folder,csv_folder+"/"+folder))
     for folder in folders:
         #create one excel sheet for each folder
         files = os.listdir(folder[1])
@@ -365,6 +371,20 @@ def unify_results(dir):
                 print("Error reading file "+file)
                 print(e)
         df.to_excel(writer, sheet_name=folder[0], index=False)
+    for folder in data_folders:
+        #create excel_sheet for each file 
+        files = os.listdir(folder[1])
+        if len(files)==0:
+            print("No files to unify")
+            return
+        for file in files:
+            try:
+                data = pd.read_csv(folder[1]+"/"+file)
+                data["filename"] = file
+                data.to_excel(writer, sheet_name=folder[0].replace("csvs_","")+"_"+file.split(".")[0], index=False)
+            except Exception as e:
+                print("Error reading file "+file)
+                print(e)
     writer.close()
 
 def clean_users_data(file):
@@ -410,6 +430,9 @@ def clean_users_data(file):
 
 def enrich_data(dir):
     userfiles=[]
+    if not os.path.isdir(dir+"/data"):
+        print("No data directory found")
+        return
     #list files on data direcotry
     files = os.listdir(dir+"/data")
     for file in files:    
@@ -427,20 +450,23 @@ def enrich_data(dir):
     for ufile in userfiles:
         #open file and add to dataframe
         users_data = pd.concat([users_data,pd.read_csv(dir+"/data/"+ufile)])
+    if not os.path.isdir(dir+"/csvs/csvs_data"):
+        os.mkdir(dir+"/csvs/csvs_data")
+    users_data.to_csv(dir+"/csvs/csvs_data/users_data.csv", index=False)
     #iterate all csvs and enrich user data by sid
-    for folder in os.listdir(dir):
+    for folder in os.listdir(dir+"/csvs"):
         if folder.startswith("csvs_"):
-            files = os.listdir(dir+"/"+folder)
+            files = os.listdir(dir+"/csvs"+"/"+folder)
             for file in files:
-                data = pd.read_csv(dir+"/"+folder+"/"+file)
+                data = pd.read_csv(dir+"/csvs"+"/"+folder+"/"+file)
                 #check which header it contains SID or Object Security ID
                 if "SID" in data.columns:
                     #merga data with users_data by SID and add columns
                     data = pd.merge(data, users_data, left_on="SID", right_on="objectsid", how="left")
-                    data.to_csv(dir+"/"+folder+"/"+file, index=False)
+                    data.to_csv(dir+"/csvs"+"/"+folder+"/"+file, index=False)
                 elif "Object Security ID" in data.columns:
                     data = pd.merge(data, users_data, left_on="Object Security ID", right_on="objectsid", how="left")
-                    data.to_csv(dir+"/"+folder+"/"+file, index=False)
+                    data.to_csv(dir+"/csvs"+"/"+folder+"/"+file, index=False)
         
 
 if __name__ == "__main__":
@@ -449,6 +475,9 @@ if __name__ == "__main__":
     parser.add_argument("-d","--directory", help="directory to search for mimikatz files",required=True)
     parser.add_argument("-f","--force_overwrite", help="force overwrite of files",required=False,default=True)
     args = parser.parse_args()
+    #create csv folder if not exists
+    if not os.path.isdir(args.directory+"/csvs"):
+        os.mkdir(args.directory)
     #find all files that contains mimikatz
     force_overwrite = args.force_overwrite
     files = mimikatz_finder(args.directory)
